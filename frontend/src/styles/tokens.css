@@ -1,0 +1,36 @@
+/* VendorBridge: Orange Clean Paper tokens. Import once in main.jsx */
+@import url("https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600&display=swap");
+
+:root {
+  --paper: #fbf6ee;
+  --cream: #f6ede0;
+  --parchment: #efe4d3;
+  --stone: #e3d8c8;
+  --card: #fffcf7;
+
+  --orange-action: #c8460c; /* buttons, links (passes text contrast) */
+  --orange-signal: #e8590c; /* focus ring, progress bars */
+  --peach: #ffe3cc;
+
+  --ink: #2b2520;
+  --body: #6b6258;
+
+  --radius-shell: 36px;
+  --radius-field: 14px;
+  --radius-card: 22px;
+
+  --shadow-orange: 0 22px 44px -18px rgba(190, 95, 30, 0.35);
+  --font: "Figtree", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background: radial-gradient(ellipse at 18% 0%, #fff8ec 0%, var(--cream) 55%, var(--parchment) 100%);
+  min-height: 100vh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
