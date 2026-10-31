@@ -1,11 +1,11 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker, DeclarativeBase 
 from app.config import settings
 
 engine = create_engine(
     settings.database_url,
-    pool_pre_ping=True,   # test the connection before using it, reconnect if dead
-    pool_recycle=300,     # replace connections older than 5 minutes
+    pool_pre_ping=True,   
+    pool_recycle=300,     
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 

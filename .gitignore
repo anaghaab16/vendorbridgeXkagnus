@@ -1,12 +1,13 @@
-  .env
-  **/.env
-  !.env.example
-  venv/
+.env
+**/.env
+!.env.example
+venv/
 **/venv/
-  node_modules/
-  **/node_modules/
-  __pycache__/
+node_modules/
+**/node_modules/
+__pycache__/
 **/__pycache__/
-  *.pyc
-  dist/
-  .vscode/
+*.pyc
+dist/
+.vscode/
+backend/uploads/

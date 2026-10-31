@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 
-const EMPTY = { name: "", category: "", gst_number: "", contact_no: "", status: "pending" };
+const EMPTY = { name: "", category: "", gst_number: "", contact_no: "", email: "", rating: 0, status: "pending" };
 const FILTERS = ["all", "active", "pending", "blocked"];
 
 export default function Vendors() {
@@ -30,7 +30,7 @@ export default function Vendors() {
   const shown = (vendors || []).filter(
     (v) =>
       (filter === "all" || v.status === filter) &&
-      `${v.name} ${v.gst_number || ""} ${v.category || ""}`.toLowerCase().includes(q.toLowerCase())
+      `${v.name} ${v.gst_number || ""} ${v.category || ""} ${v.email || ""}`.toLowerCase().includes(q.toLowerCase())
   );
 
   async function save(e) {
@@ -38,6 +38,7 @@ export default function Vendors() {
     setError("");
     setBusy(true);
     const { id, created_at, ...payload } = form;
+    payload.rating = Number(payload.rating) || 0;
     try {
       await api(id ? `/vendors/${id}` : "/vendors", { method: id ? "PUT" : "POST", body: payload });
       setForm(null);
@@ -77,6 +78,8 @@ export default function Vendors() {
             <label>Category<input value={form.category || ""} onChange={set("category")} placeholder="e.g. IT, Construction" /></label>
             <label>GST number<input value={form.gst_number || ""} onChange={set("gst_number")} placeholder="27AABCS1429B1Z5" maxLength={15} /></label>
             <label>Contact no.<input type="tel" value={form.contact_no || ""} onChange={set("contact_no")} placeholder="+91 98765 43210" /></label>
+            <label>Login email (links a vendor user to this vendor)<input type="email" value={form.email || ""} onChange={set("email")} placeholder="vendor@company.com" /></label>
+            <label>Rating (0 to 5)<input type="number" min="0" max="5" step="0.1" value={form.rating ?? 0} onChange={set("rating")} /></label>
             <label>Status
               <select value={form.status} onChange={set("status")}>
                 <option value="pending">Pending</option>
@@ -107,7 +110,7 @@ export default function Vendors() {
         <div className="card empty"><h3>No vendors found</h3><p>Click "+ Add Vendor" to create one.</p></div>
       ) : (
         <table>
-          <thead><tr><th>Vendor name</th><th>Category</th><th>GST no.</th><th>Contact no.</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr><th>Vendor name</th><th>Category</th><th>GST no.</th><th>Contact no.</th><th>Email</th><th>Rating</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
             {shown.map((v) => (
               <tr key={v.id}>
@@ -115,6 +118,8 @@ export default function Vendors() {
                 <td>{v.category || "-"}</td>
                 <td>{v.gst_number || "-"}</td>
                 <td>{v.contact_no || "-"}</td>
+                <td>{v.email || "-"}</td>
+                <td>{v.rating > 0 ? `\u2605 ${Number(v.rating).toFixed(1)}` : "-"}</td>
                 <td><span className={`pill ${v.status}`}>{v.status}</span></td>
                 <td className="row-actions">
                   <button onClick={() => { setError(""); setForm({ ...v }); window.scrollTo({ top: 0, behavior: "smooth" }); }}>View</button>

@@ -2,12 +2,13 @@ import { NavLink } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
 const STAFF = ["admin", "manager", "procurement_officer"];
-// pages that exist in the mockup but are not built yet
-const LATER = ["RFQ's", "Quotations", "Approvals", "Purchase orders", "Invoices", "Reports", "Activity"];
+// pages from the mockup that are not built yet
+const LATER = ["Approvals", "Purchase orders", "Invoices", "Reports", "Activity"];
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
-  const canSeeVendors = STAFF.includes(user.role);
+  const isStaff = STAFF.includes(user.role);
+  const isVendor = user.role === "vendor";
 
   return (
     <div className="shell">
@@ -30,7 +31,9 @@ export default function Layout({ children }) {
         <aside className="sidebar">
           <nav aria-label="Main">
             <NavLink to="/" end>Dashboard</NavLink>
-            {canSeeVendors && <NavLink to="/vendors">Vendors</NavLink>}
+            {isStaff && <NavLink to="/vendors">Vendors</NavLink>}
+            {isStaff && <NavLink to="/rfqs">RFQ's</NavLink>}
+            {isVendor && <NavLink to="/my-rfqs">My RFQ's</NavLink>}
             {LATER.map((label) => (
               <span key={label} className="soon">{label}</span>
             ))}

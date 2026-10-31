@@ -8,3 +8,4 @@ pyjwt
 bcrypt
 pytest
 httpx
+python-multipart
