@@ -17,7 +17,7 @@ from app.schemas import (
     AttachmentOut, CompareOut, RFQDetailOut, RFQIn, RFQListOut, RFQStatusIn, SelectIn,
 )
 from app.services import (
-    attachment_out, build_comparison, get_rfq_or_404, is_assigned, rfq_detail, rfq_summary, vendor_for_user,
+    active_approval, attachment_out, build_comparison, get_rfq_or_404, is_assigned, rfq_detail, rfq_summary, vendor_for_user,
 )
 
 # can read RFQs and compare quotations
@@ -94,6 +94,9 @@ def change_status(rfq_id: int, data: RFQStatusIn, db: Session = Depends(get_db))
     if data.status not in TRANSITIONS.get(rfq.status, set()):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"A {rfq.status.value} RFQ cannot be changed to {data.status.value}")
+    if data.status == RFQStatus.cancelled and active_approval(rfq) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "This RFQ is in the approval process and cannot be cancelled")
     if data.status == RFQStatus.sent:
         if not rfq.vendors:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -188,6 +191,9 @@ def select_quotation(rfq_id: int, data: SelectIn, db: Session = Depends(get_db))
     if rfq.status not in (RFQStatus.sent, RFQStatus.closed):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Quotations can only be selected on a sent or closed RFQ")
+    if active_approval(rfq) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "This RFQ is already in the approval process, so the selection is locked")
     target = None
     if data.quotation_id is not None:
         target = next((q for q in rfq.quotations if q.id ==

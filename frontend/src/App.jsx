@@ -12,6 +12,12 @@ import RFQDetail from "./pages/RFQDetail.jsx";
 import Compare from "./pages/Compare.jsx";
 import MyRFQs from "./pages/MyRFQs.jsx";
 import MyRFQDetail from "./pages/MyRFQDetail.jsx";
+import Approvals from "./pages/Approvals.jsx";
+import ApprovalDetail from "./pages/ApprovalDetail.jsx";
+import PurchaseOrders from "./pages/PurchaseOrders.jsx";
+import PurchaseOrderDetail from "./pages/PurchaseOrderDetail.jsx";
+import Invoices from "./pages/Invoices.jsx";
+import InvoiceDetail from "./pages/InvoiceDetail.jsx";
 
 const STAFF = ["admin", "manager", "procurement_officer"];
 
@@ -37,6 +43,12 @@ export default function App() {
       <Route path="/rfqs/:id/compare" element={<Protected roles={STAFF}><Compare /></Protected>} />
       <Route path="/my-rfqs" element={<Protected roles={["vendor"]}><MyRFQs /></Protected>} />
       <Route path="/my-rfqs/:id" element={<Protected roles={["vendor"]}><MyRFQDetail /></Protected>} />
+      <Route path="/approvals" element={<Protected roles={STAFF}><Approvals /></Protected>} />
+      <Route path="/approvals/:id" element={<Protected roles={STAFF}><ApprovalDetail /></Protected>} />
+      <Route path="/purchase-orders" element={<Protected><PurchaseOrders /></Protected>} />
+      <Route path="/purchase-orders/:id" element={<Protected><PurchaseOrderDetail /></Protected>} />
+      <Route path="/invoices" element={<Protected><Invoices /></Protected>} />
+      <Route path="/invoices/:id" element={<Protected><InvoiceDetail /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

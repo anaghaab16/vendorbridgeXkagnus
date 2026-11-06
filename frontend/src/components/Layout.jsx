@@ -3,7 +3,7 @@ import { useAuth } from "../auth.jsx";
 
 const STAFF = ["admin", "manager", "procurement_officer"];
 // pages from the mockup that are not built yet
-const LATER = ["Approvals", "Purchase orders", "Invoices", "Reports", "Activity"];
+const LATER = ["Reports", "Activity"];
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
@@ -34,6 +34,9 @@ export default function Layout({ children }) {
             {isStaff && <NavLink to="/vendors">Vendors</NavLink>}
             {isStaff && <NavLink to="/rfqs">RFQ's</NavLink>}
             {isVendor && <NavLink to="/my-rfqs">My RFQ's</NavLink>}
+            {isStaff && <NavLink to="/approvals">Approvals</NavLink>}
+            <NavLink to="/purchase-orders">Purchase orders</NavLink>
+            <NavLink to="/invoices">Invoices</NavLink>
             {LATER.map((label) => (
               <span key={label} className="soon">{label}</span>
             ))}

@@ -1,10 +1,22 @@
-"""Shared helpers for the RFQ and quotation routes."""
+"""Shared helpers for the RFQ, quotation and document routes."""
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import RFQ, Quotation, QuotationStatus, RFQVendor, User, Vendor
+from app.models import ApprovalStatus, RFQ, Quotation, QuotationStatus, RFQVendor, User, Vendor
+
+CENT = Decimal("0.01")
+
+
+def D(x) -> Decimal:
+    return x if isinstance(x, Decimal) else Decimal(str(x))
+
+
+def q2(x) -> Decimal:
+    """Round to 2 decimals, half up (normal money rounding)."""
+    return D(x).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
 def deadline_passed(rfq: RFQ) -> bool:
@@ -50,15 +62,50 @@ def quote_lines(q: Quotation) -> list[dict]:
         lines.append({
             "rfq_item_id": it.id, "item_name": it.item_name, "quantity": it.quantity, "unit": it.unit,
             "unit_price": price,
-            "line_total": None if price is None else round(price * it.quantity, 2),
+            "line_total": None if price is None else float(q2(D(price) * D(it.quantity))),
         })
     return lines
 
 
 def quote_totals(lines: list[dict], gst_percent: float) -> tuple[float, float, float]:
-    subtotal = round(sum(l["line_total"] or 0 for l in lines), 2)
-    gst = round(subtotal * gst_percent / 100, 2)
-    return subtotal, gst, round(subtotal + gst, 2)
+    subtotal = q2(sum((D(l["line_total"] or 0) for l in lines), Decimal(0)))
+    gst = q2(subtotal * D(gst_percent) / 100)
+    return float(subtotal), float(gst), float(subtotal + gst)
+
+
+def doc_totals(rows: list[tuple], gst_percent: float, vendor_gst: str | None, buyer_gstin: str | None) -> dict:
+    """Totals for a purchase order or invoice, from (unit_price, quantity) rows, using exact decimals.
+
+    Tax is split into CGST + SGST for a same-state supply, or IGST when the first two digits
+    (the state code) of the two GSTINs differ.
+    """
+    lines = [q2(D(price) * D(qty)) for price, qty in rows]
+    subtotal = sum(lines, Decimal(0))
+    gst_total = q2(subtotal * D(gst_percent) / 100)
+    inter_state = bool(
+        vendor_gst and buyer_gstin and vendor_gst[:2] != buyer_gstin[:2])
+    if inter_state:
+        cgst = sgst = Decimal("0.00")
+        igst = gst_total
+    else:
+        cgst = q2(gst_total / 2)
+        sgst = gst_total - cgst
+        igst = Decimal("0.00")
+    return {"lines": lines, "subtotal": subtotal, "cgst": cgst, "sgst": sgst, "igst": igst,
+            "gst_total": gst_total, "grand_total": subtotal + gst_total}
+
+
+def active_approval(rfq: RFQ):
+    """The approval request that is still live (not rejected), if any."""
+    return next((a for a in rfq.approvals if a.status != ApprovalStatus.rejected), None)
+
+
+def approval_brief(rfq: RFQ) -> dict | None:
+    a = active_approval(rfq)
+    if a is None:
+        return None
+    po = a.purchase_order
+    return {"id": a.id, "status": a.status, "po_id": po.id if po else None, "po_number": po.po_number if po else None}
 
 
 def quotation_out(q: Quotation) -> dict:
@@ -92,6 +139,7 @@ def rfq_detail(rfq: RFQ) -> dict:
     return {
         **rfq_summary(rfq),
         "selected_quotation_id": getattr(selected_quotation(rfq), "id", None),
+        "approval": approval_brief(rfq),
         "description": rfq.description,
         "items": [item_out(i) for i in rfq.items],
         "vendors": [
@@ -129,6 +177,7 @@ def build_comparison(rfq: RFQ) -> dict:
     return {
         "rfq_id": rfq.id, "rfq_number": rfq.rfq_number, "title": rfq.title, "deadline": rfq.deadline,
         "status": rfq.status, "selected_quotation_id": getattr(selected_quotation(rfq), "id", None),
+        "approval": approval_brief(rfq),
         "items": [item_out(i) for i in rfq.items], "quotes": columns,
         "waiting": [rv.vendor.name for rv in rfq.vendors if rv.vendor_id not in quoted],
     }

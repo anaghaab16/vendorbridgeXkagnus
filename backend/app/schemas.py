@@ -1,7 +1,11 @@
 import re
 from datetime import date, datetime
+from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-from app.models import QuotationStatus, RFQStatus, Role, VendorStatus
+from app.models import (
+    ApprovalStatus, InvoiceStatus, POStatus, QuotationStatus, RFQStatus, Role, VendorStatus,
+)
 
 PHONE_RE = r"\+?[0-9 \-]{10,16}"
 GST_RE = r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]"
@@ -90,7 +94,8 @@ class VendorIn(BaseModel):
             return v
         v = v.upper()
         if not re.fullmatch(GST_RE, v):
-            raise ValueError("GST number must be 15 characters, like 27AABCS1429B1Z5")
+            raise ValueError(
+                "GST number must be 15 characters, like 27AABCS1429B1Z5")
         return v
 
     @field_validator("contact_no")
@@ -183,8 +188,16 @@ class RFQVendorOut(BaseModel):
     quotation_status: QuotationStatus | None
 
 
+class ApprovalBrief(BaseModel):
+    id: int
+    status: ApprovalStatus
+    po_id: int | None
+    po_number: str | None
+
+
 class RFQDetailOut(RFQListOut):
     selected_quotation_id: int | None
+    approval: ApprovalBrief | None
     description: str | None
     items: list[RFQItemOut]
     vendors: list[RFQVendorOut]
@@ -196,6 +209,14 @@ class RFQDetailOut(RFQListOut):
 class QuoteItemIn(BaseModel):
     rfq_item_id: int
     unit_price: float = Field(ge=0, le=1_000_000_000)
+
+    @field_validator("unit_price")
+    @classmethod
+    def two_decimals(cls, v):
+        # prices become money on purchase orders, so at most 2 decimal places
+        if Decimal(str(v)).as_tuple().exponent < -2:
+            raise ValueError("Unit price can have at most 2 decimal places")
+        return v
 
 
 class QuotationIn(BaseModel):
@@ -286,6 +307,7 @@ class CompareOut(BaseModel):
     rfq_id: int
     rfq_number: str | None
     selected_quotation_id: int | None
+    approval: ApprovalBrief | None
     title: str
     deadline: date
     status: RFQStatus
@@ -296,3 +318,160 @@ class CompareOut(BaseModel):
 
 class SelectIn(BaseModel):
     quotation_id: int | None = None  # None clears the selection
+
+
+# -------------------------------------------------------------- approvals
+
+class ApprovalSubmitIn(BaseModel):
+    rfq_id: int
+
+
+class DecisionIn(BaseModel):
+    decision: Literal["approve", "reject"]
+    remarks: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("remarks", mode="before")
+    @classmethod
+    def blank_remarks(cls, v):
+        return _blank_to_none(v)
+
+
+class TimelineEvent(BaseModel):
+    key: str
+    label: str
+    status: Literal["done", "current", "pending", "rejected", "skipped"]
+    actor: str | None
+    at: datetime | None
+    remarks: str | None
+
+
+class ApprovalListOut(BaseModel):
+    id: int
+    rfq_id: int
+    rfq_number: str | None
+    rfq_title: str
+    vendor_name: str
+    total: float
+    status: ApprovalStatus
+    step_label: str
+    requested_by_name: str
+    created_at: datetime
+    completed_at: datetime | None
+    po_id: int | None
+    po_number: str | None
+
+
+class ApprovalDetailOut(ApprovalListOut):
+    quotation: CompareColumn
+    timeline: list[TimelineEvent]
+    can_decide: bool
+    decision_note: str | None
+
+
+# ---------------------------------------------- purchase orders, invoices
+
+class PartyOut(BaseModel):
+    name: str
+    address: str | None = None
+    gstin: str | None = None
+    contact: str | None = None
+    email: str | None = None
+
+
+class DocItemOut(BaseModel):
+    item_name: str
+    unit: str
+    quantity: float
+    unit_price: float
+    line_total: float
+
+
+class DocTotalsOut(BaseModel):
+    subtotal: float
+    cgst: float
+    sgst: float
+    igst: float
+    gst_total: float
+    gst_percent: float
+    grand_total: float
+    tax_label: str
+
+
+class POCreateIn(BaseModel):
+    approval_id: int
+
+
+class POListOut(BaseModel):
+    id: int
+    po_number: str | None
+    rfq_id: int
+    rfq_number: str | None
+    rfq_title: str
+    vendor_name: str
+    po_date: date
+    status: POStatus
+    grand_total: float
+    invoice_id: int | None
+    invoice_number: str | None
+
+
+class PODetailOut(POListOut):
+    approval_id: int
+    quotation_id: int
+    payment_terms: str | None
+    delivery_days: int | None
+    buyer: PartyOut
+    vendor: PartyOut
+    items: list[DocItemOut]
+    totals: DocTotalsOut
+    created_by_name: str
+    created_at: datetime
+
+
+class InvoiceCreateIn(BaseModel):
+    po_id: int
+
+
+class EmailIn(BaseModel):
+    to: EmailStr | None = None
+
+
+class EmailLogOut(BaseModel):
+    to_email: str
+    ok: bool
+    error: str | None
+    created_at: datetime
+
+
+class InvoiceListOut(BaseModel):
+    id: int
+    invoice_number: str | None
+    po_id: int
+    po_number: str | None
+    vendor_name: str
+    invoice_date: date
+    due_date: date
+    status: InvoiceStatus
+    is_overdue: bool
+    grand_total: float
+
+
+class InvoiceDetailOut(InvoiceListOut):
+    rfq_id: int
+    rfq_number: str | None
+    payment_terms: str | None
+    buyer: PartyOut
+    vendor: PartyOut
+    items: list[DocItemOut]
+    totals: DocTotalsOut
+    paid_at: datetime | None
+    created_by_name: str
+    created_at: datetime
+    emails: list[EmailLogOut]
+    email_enabled: bool
+
+
+class EmailResultOut(BaseModel):
+    ok: bool
+    to: str
+    message: str

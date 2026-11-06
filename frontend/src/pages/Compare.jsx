@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { formatDate, money, ratingLabel } from "../format.js";
@@ -12,6 +12,7 @@ const SORTS = {
 
 export default function Compare() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const canSelect = ["admin", "procurement_officer"].includes(user.role);
   const [data, setData] = useState(null);
@@ -32,7 +33,15 @@ export default function Compare() {
     .filter((q) => !maxDays || (q.delivery_days ?? 1e9) <= Number(maxDays))
     .sort(SORTS[sort][1]);
   const cls = (flag) => (flag ? "best" : "");
-  const canPick = canSelect && (data.status === "sent" || data.status === "closed");
+  const canPick = canSelect && !data.approval && (data.status === "sent" || data.status === "closed");
+
+  async function submitForApproval() {
+    setError(""); setBusy(true);
+    try {
+      const a = await api("/approvals", { method: "POST", body: { rfq_id: Number(id) } });
+      navigate(`/approvals/${a.id}`);
+    } catch (e) { setError(e.message); setBusy(false); }
+  }
 
   async function select(quotationId) {
     setError(""); setBusy(true);
@@ -46,6 +55,15 @@ export default function Compare() {
       <div className="page-head"><h1>Quotation comparison</h1><Link className="btn" to={`/rfqs/${id}`}>Back to RFQ</Link></div>
       <p className="lead"><strong>{data.rfq_number}</strong> &middot; {data.title} &middot; deadline {formatDate(data.deadline)} &middot; {data.quotes.length} quotation{data.quotes.length === 1 ? "" : "s"} received</p>
       {error && <p className="error" role="alert">{error}</p>}
+      {data.approval && (
+        <p className="notice" role="status">
+          Approval is {data.approval.status.replaceAll("_", " ")}. <Link className="lk" to={`/approvals/${data.approval.id}`}>Open approval</Link>
+          {data.approval.po_id && <> &middot; <Link className="lk" to={`/purchase-orders/${data.approval.po_id}`}>{data.approval.po_number}</Link></>}
+        </p>
+      )}
+      {canSelect && !data.approval && data.selected_quotation_id && (
+        <div className="actions"><button className="btn primary" disabled={busy} onClick={submitForApproval}>Submit selected quotation for approval</button></div>
+      )}
       {data.waiting.length > 0 && <p className="muted">Waiting for: {data.waiting.join(", ")}</p>}
 
       {data.quotes.length === 0 ? (
@@ -111,7 +129,7 @@ export default function Compare() {
               </table>
             </div>
           )}
-          <p className="muted">Lowest price and fastest delivery are worked out across all submitted quotations, not only the ones shown. Selecting a quotation marks it for the approval step; it does not approve it.</p>
+          <p className="muted">Lowest price and fastest delivery are worked out across all submitted quotations, not only the ones shown. Selecting a quotation does not approve it. Submit it for approval when you are ready.</p>
         </>
       )}
     </>

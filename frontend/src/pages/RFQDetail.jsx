@@ -67,11 +67,17 @@ export default function RFQDetail() {
         {canManage && rfq.status === "draft" && <button className="btn primary" onClick={() => changeStatus("sent")}>Send to vendors</button>}
         {rfq.status !== "draft" && rfq.status !== "cancelled" && <Link className="btn primary" to={`/rfqs/${id}/compare`}>Compare quotations ({rfq.quote_count})</Link>}
         {canManage && rfq.status === "sent" && <button onClick={() => changeStatus("closed", "Close this RFQ? Vendors will no longer be able to change quotations.")}>Close RFQ</button>}
-        {canManage && open && <button className="danger" onClick={() => changeStatus("cancelled", "Cancel this RFQ?")}>Cancel RFQ</button>}
+        {canManage && open && !rfq.approval && <button className="danger" onClick={() => changeStatus("cancelled", "Cancel this RFQ?")}>Cancel RFQ</button>}
         {canManage && rfq.status === "draft" && <button className="danger" onClick={remove}>Delete draft</button>}
       </div>
 
-      {rfq.selected_vendor_name && <p className="notice" role="status">Selected quotation: {rfq.selected_vendor_name}. It is ready for the approval step.</p>}
+      {rfq.selected_vendor_name && !rfq.approval && <p className="notice" role="status">Selected quotation: {rfq.selected_vendor_name}. Open the comparison to submit it for approval.</p>}
+      {rfq.approval && (
+        <p className="notice" role="status">
+          Approval for {rfq.selected_vendor_name}: {rfq.approval.status.replaceAll("_", " ")}. <Link className="lk" to={`/approvals/${rfq.approval.id}`}>Open approval</Link>
+          {rfq.approval.po_id && <> &middot; <Link className="lk" to={`/purchase-orders/${rfq.approval.po_id}`}>{rfq.approval.po_number}</Link></>}
+        </p>
+      )}
 
       {rfq.description && <section className="card form-section"><h3>Description</h3><p>{rfq.description}</p></section>}
 
