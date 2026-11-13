@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import mailer
+from app import audit, mailer
 from app.database import get_db
 from app.deps import get_current_user, require_roles
 from app.models import Invoice, InvoiceEmail, PurchaseOrder, Role, User
@@ -21,8 +21,7 @@ FINANCE = (Role.admin, Role.manager)
 
 def load(db: Session, user: User, invoice_id: int) -> Invoice:
     inv = db.get(Invoice, invoice_id)
-    # same rule as the PO: staff, or the vendor it was issued to
-    if inv is None or not can_see_po(db, user, inv.po):
+    if inv is None or not can_see_po(db, user, inv.po):  # same rule as the PO: staff, or the vendor it was issued to
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
     return inv
 
@@ -32,8 +31,7 @@ def list_invoices(db: Session = Depends(get_db), user: User = Depends(get_curren
     query = select(Invoice).order_by(Invoice.created_at.desc())
     vendor_id = vendor_scope(db, user)
     if vendor_id is not None:
-        query = query.join(PurchaseOrder, PurchaseOrder.id == Invoice.po_id).where(
-            PurchaseOrder.vendor_id == vendor_id)
+        query = query.join(PurchaseOrder, PurchaseOrder.id == Invoice.po_id).where(PurchaseOrder.vendor_id == vendor_id)
     return [invoice_list_row(i) for i in db.scalars(query).all()]
 
 
@@ -58,7 +56,7 @@ def download_pdf(invoice_id: int, db: Session = Depends(get_db), user: User = De
 
 @router.patch("/{invoice_id}/mark-paid", response_model=InvoiceDetailOut)
 def pay(invoice_id: int, db: Session = Depends(get_db), user: User = Depends(require_roles(*FINANCE))):
-    return invoice_detail(mark_paid(db, load(db, user, invoice_id)))
+    return invoice_detail(mark_paid(db, load(db, user, invoice_id), user))
 
 
 @router.post("/{invoice_id}/email", response_model=EmailResultOut)
@@ -67,8 +65,7 @@ def email_invoice(invoice_id: int, data: EmailIn, db: Session = Depends(get_db),
     inv = load(db, user, invoice_id)
     to = data.to or inv.po.vendor_email
     if not to:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "This vendor has no email. Enter an address to send to.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "This vendor has no email. Enter an address to send to.")
     if not mailer.email_enabled():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "Email is not configured on the server. Set the SMTP settings in .env and restart.")
@@ -77,11 +74,13 @@ def email_invoice(invoice_id: int, data: EmailIn, db: Session = Depends(get_db),
         mailer.send_invoice_email(to, inv.invoice_number, inv.po.vendor_name, f"INR {inr(inv.grand_total)}",
                                   inv.due_date.strftime("%d %b %Y"), invoice_pdf(detail))
     except mailer.MailFailed as exc:
-        db.add(InvoiceEmail(invoice_id=inv.id, to_email=to,
-               ok=False, error=str(exc)[:300], sent_by=user.id))
+        db.add(InvoiceEmail(invoice_id=inv.id, to_email=to, ok=False, error=str(exc)[:300], sent_by=user.id))
+        audit.record(db, user, "invoice.email_failed", "invoice", inv.id, inv.invoice_number,
+                     f"{user.name} tried to email {inv.invoice_number} to {to}, but it failed")
         db.commit()
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
-                            "The email server refused or did not answer. Check the SMTP settings and try again.")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The email server refused or did not answer. Check the SMTP settings and try again.")
     db.add(InvoiceEmail(invoice_id=inv.id, to_email=to, ok=True, sent_by=user.id))
+    audit.record(db, user, "invoice.emailed", "invoice", inv.id, inv.invoice_number,
+                 f"{user.name} emailed {inv.invoice_number} to {to}")
     db.commit()
     return {"ok": True, "to": to, "message": f"Invoice {inv.invoice_number} sent to {to}"}

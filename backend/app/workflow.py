@@ -7,7 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.config import settings
+from app.pdf import inr
 from app.models import (
     ApprovalRequest, ApprovalStatus, ApprovalStep, Invoice, InvoiceStatus, POItem, POStatus,
     PurchaseOrder, RFQStatus, Role, StepStatus, User, Vendor,
@@ -41,7 +43,14 @@ def submit_for_approval(db: Session, rfq_id: int, user: User) -> ApprovalRequest
                           status=ApprovalStatus.awaiting_l1)
     req.steps = [ApprovalStep(level=1), ApprovalStep(level=2)]
     db.add(req)
+    total = quote_totals(quote_lines(quote), quote.gst_percent)[2]
     try:
+        db.flush()
+        audit.record(db, user, "approval.submitted", "approval", req.id, rfq.rfq_number,
+                     f"{user.name} sent the quotation of {quote.vendor.name} (INR {inr(total)}) for {rfq.rfq_number} for approval")
+        audit.notify(db, audit.staff_with_roles(db, APPROVER_ROLES), user, "approval.requested", "Approval needed",
+                     f"{rfq.rfq_number}: quotation of {quote.vendor.name}, INR {inr(total)}, is waiting for L1 review.",
+                     "approval", req.id, f"/approvals/{req.id}")
         db.commit()
     except IntegrityError:  # two people submitted at the same moment
         db.rollback()
@@ -83,6 +92,27 @@ def decide(db: Session, req: ApprovalRequest, user: User, approve: bool, remarks
     else:
         req.status = ApprovalStatus.approved
         req.completed_at = step.acted_at
+    number = req.rfq.rfq_number
+    vendor_name = req.quotation.vendor.name
+    note = f' Remarks: "{remarks}"' if remarks else ""
+    if not approve:
+        audit.record(db, user, "approval.rejected", "approval", req.id, number,
+                     f"{user.name} rejected the approval of {number} at {LEVEL_LABEL[level]}.{note}")
+        audit.notify(db, [req.requester], user, "approval.rejected", "Approval rejected",
+                     f"{user.name} rejected {number} ({vendor_name}).{note} You can select a quotation again and resubmit.",
+                     "approval", req.id, f"/approvals/{req.id}")
+    elif level == 1:
+        audit.record(db, user, "approval.l1_approved", "approval", req.id, number,
+                     f"{user.name} passed the L1 review of {number}.{note}")
+        audit.notify(db, audit.staff_with_roles(db, APPROVER_ROLES) + [req.requester], user, "approval.l1_approved",
+                     "Waiting for L2 approval", f"{number} ({vendor_name}) passed L1 review and needs the second approval.",
+                     "approval", req.id, f"/approvals/{req.id}")
+    else:
+        audit.record(db, user, "approval.approved", "approval", req.id, number,
+                     f"{user.name} gave the final approval of {number}.{note}")
+        audit.notify(db, [req.requester], user, "approval.approved", "Quotation approved",
+                     f"{number} ({vendor_name}) is approved. You can now generate the purchase order.",
+                     "approval", req.id, f"/approvals/{req.id}")
     db.commit()
     db.refresh(req)
     return req
@@ -185,6 +215,14 @@ def generate_po(db: Session, approval_id: int, user: User) -> PurchaseOrder:
     try:
         db.flush()
         po.po_number = f"PO-{date.today().year}-{po.id:04d}"
+        audit.record(db, user, "po.created", "purchase_order", po.id, po.po_number,
+                     f"{user.name} created {po.po_number} for {vendor.name} (INR {inr(po.grand_total)}) from {rfq.rfq_number}")
+        audit.notify(db, audit.vendor_users(db, vendor), user, "po.issued", "Purchase order issued",
+                     f"{po.po_number} for INR {inr(po.grand_total)} was issued to {vendor.name}.", "purchase_order", po.id,
+                     f"/purchase-orders/{po.id}")
+        audit.notify(db, [req.requester], user, "po.created", "Purchase order created",
+                     f"{po.po_number} was created from the approval of {rfq.rfq_number}.", "purchase_order", po.id,
+                     f"/purchase-orders/{po.id}")
         db.commit()
     except IntegrityError:  # someone else created it a moment earlier
         db.rollback()
@@ -220,6 +258,13 @@ def generate_invoice(db: Session, po_id: int, user: User) -> Invoice:
         db.flush()
         inv.invoice_number = f"INV-{today.year}-{inv.id:04d}"
         po.status = POStatus.invoiced
+        audit.record(db, user, "invoice.created", "invoice", inv.id, inv.invoice_number,
+                     f"{user.name} created {inv.invoice_number} from {po.po_number} (INR {inr(inv.grand_total)}, due {inv.due_date:%d %b %Y})")
+        text = f"{inv.invoice_number} for INR {inr(inv.grand_total)} was created from {po.po_number}. Due {inv.due_date:%d %b %Y}."
+        audit.notify(db, audit.vendor_users(db, po.vendor), user, "invoice.created", "Invoice issued", text,
+                     "invoice", inv.id, f"/invoices/{inv.id}")
+        audit.notify(db, audit.staff_with_roles(db, APPROVER_ROLES), user, "invoice.created", "Invoice created", text,
+                     "invoice", inv.id, f"/invoices/{inv.id}")
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -228,12 +273,16 @@ def generate_invoice(db: Session, po_id: int, user: User) -> Invoice:
     return inv
 
 
-def mark_paid(db: Session, inv: Invoice) -> Invoice:
+def mark_paid(db: Session, inv: Invoice, user: User) -> Invoice:
     if inv.status == InvoiceStatus.paid:
         raise HTTPException(status.HTTP_409_CONFLICT, "This invoice is already paid")
     inv.status = InvoiceStatus.paid
     inv.paid_at = now()
     inv.po.status = POStatus.closed
+    audit.record(db, user, "invoice.paid", "invoice", inv.id, inv.invoice_number,
+                 f"{user.name} marked {inv.invoice_number} as paid (INR {inr(inv.grand_total)})")
+    audit.notify(db, audit.vendor_users(db, inv.po.vendor) + [inv.creator], user, "invoice.paid", "Invoice paid",
+                 f"{inv.invoice_number} for INR {inr(inv.grand_total)} was marked as paid.", "invoice", inv.id, f"/invoices/{inv.id}")
     db.commit()
     db.refresh(inv)
     return inv

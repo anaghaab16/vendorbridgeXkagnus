@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     secret_key: str
     access_token_minutes: int = 60
 
+    # browser addresses allowed to call the API, comma separated (add your deployed frontend URL)
+    cors_origins: str = "http://localhost:5173"
+
     # buyer details printed on purchase orders and invoices
     company_name: str = "VendorBridge Procurement"
     company_address: str = ""

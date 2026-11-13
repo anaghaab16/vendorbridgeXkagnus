@@ -1,9 +1,8 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import NotificationBell from "./NotificationBell.jsx";
 
 const STAFF = ["admin", "manager", "procurement_officer"];
-// pages from the mockup that are not built yet
-const LATER = ["Reports", "Activity"];
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
@@ -20,6 +19,7 @@ export default function Layout({ children }) {
           VendorBridge
         </div>
         <div className="user-box">
+          <NotificationBell />
           <span className="avatar" aria-hidden="true">{user.name?.[0]?.toUpperCase()}</span>
           <span className="user-name">{user.name}</span>
           <span className="badge">{user.role.replaceAll("_", " ")}</span>
@@ -37,9 +37,8 @@ export default function Layout({ children }) {
             {isStaff && <NavLink to="/approvals">Approvals</NavLink>}
             <NavLink to="/purchase-orders">Purchase orders</NavLink>
             <NavLink to="/invoices">Invoices</NavLink>
-            {LATER.map((label) => (
-              <span key={label} className="soon">{label}</span>
-            ))}
+            {isStaff && <NavLink to="/reports">Reports</NavLink>}
+            {isStaff && <NavLink to="/activity">Activity</NavLink>}
           </nav>
         </aside>
         <main>{children}</main>

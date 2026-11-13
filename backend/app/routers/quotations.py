@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.database import get_db
 from app.deps import require_roles
 from app.models import (
@@ -16,8 +17,7 @@ from app.services import (
 )
 
 router = APIRouter(prefix="/my", tags=["vendor portal"])
-# vendors never see drafts or cancelled RFQs
-VISIBLE = (RFQStatus.sent, RFQStatus.closed)
+VISIBLE = (RFQStatus.sent, RFQStatus.closed)  # vendors never see drafts or cancelled RFQs
 
 
 def my_quotation(rfq: RFQ, vendor_id: int) -> Quotation | None:
@@ -72,35 +72,28 @@ def save_quotation(rfq_id: int, data: QuotationIn, db: Session = Depends(get_db)
     vendor = vendor_for_user(db, user)
     rfq = visible_rfq(db, rfq_id, vendor.id)
     if rfq.status != RFQStatus.sent:
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            "This RFQ is closed for quotations")
+        raise HTTPException(status.HTTP_409_CONFLICT, "This RFQ is closed for quotations")
     if deadline_passed(rfq):
-        raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "The deadline has passed. Quotations can no longer be changed.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The deadline has passed. Quotations can no longer be changed.")
 
     valid_ids = {i.id for i in rfq.items}
     sent_ids = [i.rfq_item_id for i in data.items]
     if len(set(sent_ids)) != len(sent_ids) or not set(sent_ids) <= valid_ids:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "Prices must match the items of this RFQ, once each")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Prices must match the items of this RFQ, once each")
 
     q = my_quotation(rfq, vendor.id)
+    was_submitted = q is not None and q.status == QuotationStatus.submitted
     if q is not None and q.is_selected:
-        raise HTTPException(status.HTTP_409_CONFLICT,
-                            "Your quotation is now under review and can no longer be changed.")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Your quotation is now under review and can no longer be changed.")
     # a submitted quotation stays submitted; saving changes to it means submitting again
-    submit = data.submit or (
-        q is not None and q.status == QuotationStatus.submitted)
+    submit = data.submit or (q is not None and q.status == QuotationStatus.submitted)
     if submit:
         if set(sent_ids) != valid_ids:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Enter a unit price for every item")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enter a unit price for every item")
         if any(i.unit_price <= 0 for i in data.items):
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Unit prices must be greater than zero")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unit prices must be greater than zero")
         if data.delivery_days is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Enter the delivery time in days")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Enter the delivery time in days")
 
     if q is None:
         q = Quotation(rfq_id=rfq.id, vendor_id=vendor.id)
@@ -110,11 +103,18 @@ def save_quotation(rfq_id: int, data: QuotationIn, db: Session = Depends(get_db)
     q.delivery_days = data.delivery_days
     q.payment_terms = data.payment_terms
     q.notes = data.notes
-    q.items = [QuotationItem(rfq_item_id=i.rfq_item_id,
-                             unit_price=i.unit_price) for i in data.items]
+    q.items = [QuotationItem(rfq_item_id=i.rfq_item_id, unit_price=i.unit_price) for i in data.items]
     if submit:
         q.status = QuotationStatus.submitted
         q.submitted_at = datetime.now(timezone.utc)
+    db.flush()  # gives a new quotation its id
+    action = ("quotation.updated" if was_submitted else "quotation.submitted") if submit else "quotation.draft_saved"
+    verb = {"quotation.updated": "updated", "quotation.submitted": "submitted", "quotation.draft_saved": "saved a draft of"}[action]
+    audit.record(db, user, action, "quotation", q.id, rfq.rfq_number, f"{vendor.name} {verb} the quotation for {rfq.rfq_number}")
+    if submit:
+        owner = db.get(User, rfq.created_by)
+        audit.notify(db, [owner] if owner else [], user, action, "Quotation received" if not was_submitted else "Quotation updated",
+                     f"{vendor.name} {verb} the quotation for {rfq.rfq_number}.", "rfq", rfq.id, f"/rfqs/{rfq.id}/compare")
     db.commit()
     db.refresh(q)
     return quotation_out(q)

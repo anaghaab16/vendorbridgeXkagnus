@@ -6,7 +6,7 @@ pydantic[email]
 pydantic-settings
 pyjwt
 bcrypt
-pytest
-httpx
 python-multipart
 reportlab
+pytest
+httpx

@@ -32,8 +32,7 @@ def get_rfq_or_404(db: Session, rfq_id: int) -> RFQ:
 
 def vendor_for_user(db: Session, user: User) -> Vendor:
     """The vendor record whose email matches the logged-in vendor user."""
-    vendor = db.scalar(select(Vendor).where(
-        func.lower(Vendor.email) == user.email.lower()))
+    vendor = db.scalar(select(Vendor).where(func.lower(Vendor.email) == user.email.lower()))
     if vendor is None:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -82,8 +81,7 @@ def doc_totals(rows: list[tuple], gst_percent: float, vendor_gst: str | None, bu
     lines = [q2(D(price) * D(qty)) for price, qty in rows]
     subtotal = sum(lines, Decimal(0))
     gst_total = q2(subtotal * D(gst_percent) / 100)
-    inter_state = bool(
-        vendor_gst and buyer_gstin and vendor_gst[:2] != buyer_gstin[:2])
+    inter_state = bool(vendor_gst and buyer_gstin and vendor_gst[:2] != buyer_gstin[:2])
     if inter_state:
         cgst = sgst = Decimal("0.00")
         igst = gst_total
@@ -153,8 +151,7 @@ def rfq_detail(rfq: RFQ) -> dict:
 
 def build_comparison(rfq: RFQ) -> dict:
     """Submitted quotations of one RFQ, side by side. Drafts are never included."""
-    submitted = [q for q in rfq.quotations if q.status ==
-                 QuotationStatus.submitted]
+    submitted = [q for q in rfq.quotations if q.status == QuotationStatus.submitted]
     columns = []
     for q in submitted:
         lines = quote_lines(q)
@@ -167,8 +164,7 @@ def build_comparison(rfq: RFQ) -> dict:
             "is_selected": q.is_selected,
         })
     lowest = min((c["total"] for c in columns), default=None)
-    days = [c["delivery_days"]
-            for c in columns if c["delivery_days"] is not None]
+    days = [c["delivery_days"] for c in columns if c["delivery_days"] is not None]
     fastest = min(days, default=None)
     for c in columns:
         c["is_lowest"] = c["total"] == lowest

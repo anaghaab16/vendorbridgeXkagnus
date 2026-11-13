@@ -94,8 +94,7 @@ class VendorIn(BaseModel):
             return v
         v = v.upper()
         if not re.fullmatch(GST_RE, v):
-            raise ValueError(
-                "GST number must be 15 characters, like 27AABCS1429B1Z5")
+            raise ValueError("GST number must be 15 characters, like 27AABCS1429B1Z5")
         return v
 
     @field_validator("contact_no")
@@ -475,3 +474,38 @@ class EmailResultOut(BaseModel):
     ok: bool
     to: str
     message: str
+
+
+# ---------------------------------------------- notifications and activity
+
+class NotificationOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    message: str
+    entity_type: str | None
+    entity_id: int | None
+    link: str | None
+    is_read: bool
+    created_at: datetime
+
+
+class UnreadCountOut(BaseModel):
+    count: int
+
+
+class ActivityItem(BaseModel):
+    id: int
+    actor_name: str
+    actor_role: str | None
+    action: str
+    entity_type: str
+    entity_id: int | None
+    entity_label: str | None
+    message: str
+    created_at: datetime
+
+
+class ActivityPage(BaseModel):
+    items: list[ActivityItem]
+    total: int

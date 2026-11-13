@@ -18,6 +18,9 @@ import PurchaseOrders from "./pages/PurchaseOrders.jsx";
 import PurchaseOrderDetail from "./pages/PurchaseOrderDetail.jsx";
 import Invoices from "./pages/Invoices.jsx";
 import InvoiceDetail from "./pages/InvoiceDetail.jsx";
+import Notifications from "./pages/Notifications.jsx";
+import Activity from "./pages/Activity.jsx";
+import Reports from "./pages/Reports.jsx";
 
 const STAFF = ["admin", "manager", "procurement_officer"];
 
@@ -49,6 +52,9 @@ export default function App() {
       <Route path="/purchase-orders/:id" element={<Protected><PurchaseOrderDetail /></Protected>} />
       <Route path="/invoices" element={<Protected><Invoices /></Protected>} />
       <Route path="/invoices/:id" element={<Protected><InvoiceDetail /></Protected>} />
+      <Route path="/notifications" element={<Protected><Notifications /></Protected>} />
+      <Route path="/activity" element={<Protected roles={STAFF}><Activity /></Protected>} />
+      <Route path="/reports" element={<Protected roles={STAFF}><Reports /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
